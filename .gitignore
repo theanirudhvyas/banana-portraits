@@ -1,0 +1,21 @@
+# Environment and API keys
+.env
+
+# Virtual environment
+venv/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Package build artifacts
+*.egg-info/
+build/
+dist/
+
+# Data directory - contains generated images, models, and database
+data/
+
+# macOS
+.DS_Store
