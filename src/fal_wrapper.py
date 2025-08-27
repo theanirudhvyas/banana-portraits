@@ -117,6 +117,88 @@ class FALWrapper:
         self._log_verbose("Fine-tuning Response", result)
         
         return result
+    
+    def edit_image(
+        self,
+        prompt: str,
+        image_urls: List[str]
+    ) -> Dict:
+        """Edit images using nano-banana edit endpoint
+        
+        Args:
+            prompt: Description of desired edits
+            image_urls: List of image URLs to edit
+            
+        Returns:
+            Dict with edited image URLs
+        """
+        model = "fal-ai/gemini-25-flash-image/edit"
+        
+        arguments = {
+            "prompt": prompt,
+            "image_urls": image_urls
+        }
+        
+        self._log_verbose("Edit Request", {
+            "model": model,
+            "arguments": arguments
+        })
+        
+        print(f"🎨 Editing {len(image_urls)} image(s): '{prompt}'")
+        
+        # Track generation time
+        start_time = time.time()
+        success = True
+        error_message = None
+        
+        try:
+            result = fal.subscribe(
+                model,
+                arguments=arguments,
+                with_logs=True
+            )
+            
+            generation_time = time.time() - start_time
+            
+            self._log_verbose("Edit Response", result)
+            
+            # Log to database if available
+            if self.db_manager:
+                try:
+                    self.db_manager.log_generation(
+                        prompt=f"[EDIT] {prompt}",
+                        base_model="nano-banana", 
+                        success=success,
+                        generation_time=generation_time,
+                        num_images=len(result.get('images', [])),
+                        error_message=error_message
+                    )
+                except Exception as e:
+                    if self.verbose:
+                        print(f"Warning: Failed to log to database: {e}")
+            
+            return result
+            
+        except Exception as e:
+            generation_time = time.time() - start_time
+            success = False
+            error_message = str(e)
+            
+            # Log failed generation
+            if self.db_manager:
+                try:
+                    self.db_manager.log_generation(
+                        prompt=f"[EDIT] {prompt}",
+                        base_model="nano-banana",
+                        success=False,
+                        generation_time=generation_time,
+                        error_message=error_message
+                    )
+                except Exception as log_e:
+                    if self.verbose:
+                        print(f"Warning: Failed to log to database: {log_e}")
+            
+            raise e
         
     def generate_image(
         self, 

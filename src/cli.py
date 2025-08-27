@@ -354,10 +354,35 @@ def stats(ctx):
     click.echo(f"  Outputs size: {stats['outputs_size_mb']:.1f} MB")
     click.echo(f"  Temp size: {stats['temp_size_mb']:.1f} MB")
     click.echo(f"  Total size: {stats['total_size_mb']:.1f} MB")
+
+
+@main.command('editor')
+@click.option('--image', '-i', required=True, type=click.Path(exists=True),
+              help='Initial image to start editing from')
+@click.pass_context
+def editor(ctx, image: str):
+    """Interactive terminal UI for iterative image editing
     
-    if stats['temp_size_mb'] > 10:
-        click.echo()
-        click.echo("💡 Tip: Clean up temp files with manual cleanup if needed")
+    Start with an image and apply edits step-by-step using natural language prompts.
+    Each edit builds on the previous result with live ASCII previews.
+    """
+    fal = require_fal_client(ctx)
+    storage = ctx.obj['storage']
+    
+    try:
+        from .editor_ui import IterativeEditor
+        
+        # Create editor instance  
+        editor_ui = IterativeEditor(fal, storage)
+        
+        # Start interactive session
+        editor_ui.start_session(image)
+        
+    except Exception as e:
+        click.echo(f"❌ Error starting editor: {e}")
+        if ctx.obj.get('verbose'):
+            import traceback
+            traceback.print_exc()
 
 
 @main.group()
