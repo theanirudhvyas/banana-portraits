@@ -126,6 +126,7 @@ class FALWrapper:
         num_images: int = 1,
         image_size: str = "landscape_16_9",
         steps: int = 28,
+        reference_images: Optional[List[str]] = None,
         on_progress: Optional[Callable] = None
     ) -> Dict:
         """Generate images using specified base model with optional LoRA
@@ -137,27 +138,39 @@ class FALWrapper:
             num_images: Number of images to generate
             image_size: Image dimensions (ignored for nano-banana)
             steps: Number of inference steps (ignored for nano-banana)
+            reference_images: List of local image paths for reference (nano-banana only)
             on_progress: Optional callback for progress updates
             
         Returns:
             Dict with generated image URLs
         """
-        # Map base model names to FAL model IDs
-        model_mapping = {
-            "flux-dev": "fal-ai/flux/dev",
-            "flux-schnell": "fal-ai/flux/schnell", 
-            "nano-banana": "fal-ai/gemini-25-flash-image"
-        }
-        
-        model = model_mapping.get(base_model, "fal-ai/flux/dev")
-        
         # Build arguments based on model type
         if base_model == "nano-banana":
-            # Gemini 2.5 Flash Image only supports prompt and num_images
-            arguments = {
-                "prompt": prompt,
-                "num_images": min(num_images, 4)  # Max 4 images for nano-banana
-            }
+            # Choose endpoint based on whether we have reference images
+            if reference_images:
+                model = "fal-ai/gemini-25-flash-image/edit"
+                
+                # Upload reference images
+                print(f"Uploading {len(reference_images)} reference image(s)...")
+                uploaded_urls = []
+                for i, img_path in enumerate(reference_images):
+                    print(f"Uploading reference image {i+1}/{len(reference_images)}: {Path(img_path).name}")
+                    url = fal.upload_file(img_path)
+                    uploaded_urls.append(url)
+                
+                arguments = {
+                    "prompt": prompt,
+                    "image_urls": uploaded_urls,
+                    "num_images": min(num_images, 4)  # Max 4 images for nano-banana
+                }
+                print(f"Using nano-banana edit mode with {len(uploaded_urls)} reference image(s)")
+            else:
+                model = "fal-ai/gemini-25-flash-image"
+                arguments = {
+                    "prompt": prompt,
+                    "num_images": min(num_images, 4)  # Max 4 images for nano-banana
+                }
+                print("Using nano-banana text-to-image mode")
             
             if num_images > 4:
                 print(f"Note: nano-banana max is 4 images, adjusted from {num_images} to 4")
@@ -166,6 +179,17 @@ class FALWrapper:
                 print("Note: nano-banana doesn't support LoRA fine-tuning, ignoring model parameter")
                 
         else:
+            # Map base model names to FAL model IDs for Flux models
+            model_mapping = {
+                "flux-dev": "fal-ai/flux/dev",
+                "flux-schnell": "fal-ai/flux/schnell"
+            }
+            
+            model = model_mapping.get(base_model, "fal-ai/flux/dev")
+            
+            if reference_images:
+                print("Note: Reference images are only supported for nano-banana model, ignoring reference images")
+            
             # Flux models support full parameter set
             # Flux Schnell has max 4 steps
             if base_model == "flux-schnell":

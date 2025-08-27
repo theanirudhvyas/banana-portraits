@@ -119,13 +119,15 @@ def fine_tune(ctx, images_dir: str, name: str, trigger_word: str):
               type=click.Choice(['flux-dev', 'flux-schnell', 'nano-banana']),
               help='Base model to use')
 @click.option('--model', '-m', help='Name of fine-tuned model to use (optional - uses base model if not specified)')
+@click.option('--reference-images', '-r', multiple=True, type=click.Path(exists=True),
+              help='Reference image paths for character consistency (nano-banana only, can specify multiple)')
 @click.option('--count', '-c', default=1, show_default=True, type=int, help='Number of images to generate')
 @click.option('--size', '-s', default='landscape_16_9', show_default=True,
               type=click.Choice(['square', 'landscape_4_3', 'landscape_16_9', 'portrait_4_3', 'portrait_16_9']),
               help='Image size/aspect ratio (ignored for nano-banana)')
 @click.option('--steps', type=int, help='Number of inference steps (model-specific defaults, ignored for nano-banana)')
 @click.pass_context
-def generate(ctx, prompt: str, base_model: str, model: str, count: int, size: str, steps: int):
+def generate(ctx, prompt: str, base_model: str, model: str, reference_images: tuple, count: int, size: str, steps: int):
     """Generate images using specified base model or a fine-tuned model
     
     Supports multiple base models: flux-dev, flux-schnell, and nano-banana.
@@ -180,6 +182,9 @@ def generate(ctx, prompt: str, base_model: str, model: str, count: int, size: st
         click.echo(f"Using base {base_model} model")
     
     try:
+        # Convert reference images tuple to list
+        reference_image_list = list(reference_images) if reference_images else None
+        
         # Generate images
         result = fal.generate_image(
             prompt=prompt,
@@ -187,7 +192,8 @@ def generate(ctx, prompt: str, base_model: str, model: str, count: int, size: st
             lora_url=lora_url,
             num_images=count,
             image_size=size,
-            steps=steps or 0  # Provide fallback for nano-banana
+            steps=steps or 0,  # Provide fallback for nano-banana
+            reference_images=reference_image_list
         )
         
         if 'images' in result:
