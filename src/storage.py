@@ -7,13 +7,14 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, Optional, Any
 from .config import Config
+from .services import get_service
 
 
 class StorageManager:
     """Manages local storage for models, images, and temporary files"""
     
     def __init__(self) -> None:
-        self.config = Config()
+        self.config = get_service(Config)
         self.models_file: Path = self.config.models_dir / 'models.json'
         self.outputs_dir: Path = self.config.outputs_dir
         self.temp_dir: Path = self.config.temp_dir

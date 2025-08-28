@@ -4,20 +4,12 @@ import os
 import json
 from pathlib import Path
 from typing import List, Optional
-from .container import configure_container, get_container
+from .services import initialize_services, get_service, require_fal_client
 from .fal_wrapper import FALWrapper
 from .storage import StorageManager
 from .config import Config
 from .database import DatabaseManager
-
-
-def require_fal_client(ctx) -> FALWrapper:
-    """Check if FAL client is available, exit if not"""
-    if ctx.obj['fal'] is None:
-        click.echo("Error: FAL_KEY is required for this command.")
-        click.echo("Set your API key with: nano-banana config set-key <your-key>")
-        ctx.exit(1)
-    return ctx.obj['fal']
+from .providers.base import get_registry, GenerationRequest, ModelCapability
 
 
 @click.group()
@@ -44,24 +36,10 @@ def main(ctx, verbose: bool) -> None:
     # Store verbose flag for all commands
     ctx.obj['verbose'] = verbose
     
-    # Configure dependency injection container
-    container = configure_container()
-    ctx.obj['container'] = container
+    # Initialize all services
+    initialize_services(verbose=verbose)
     
-    # Resolve core services from container
-    config = container.resolve(Config)
-    storage = container.resolve(StorageManager)
-    db_manager = container.resolve(DatabaseManager)
-    
-    ctx.obj['config'] = config
-    ctx.obj['storage'] = storage
-    ctx.obj['db'] = db_manager
-    
-    # Only initialize FAL client if API key is available and not running config commands
-    if config.fal_key:
-        ctx.obj['fal'] = FALWrapper(config.fal_key, verbose=verbose, db_manager=db_manager)
-    else:
-        ctx.obj['fal'] = None
+    # Services are now available through the service locator
 
 
 @main.command()
@@ -76,8 +54,8 @@ def fine_tune(ctx, images_dir: str, name: str, trigger_word: str):
     Provide a directory with 15-20 clear face photos of the same person.
     The model will learn to generate that person's face in new scenarios.
     """
-    fal = require_fal_client(ctx)
-    storage = ctx.obj['storage']
+    fal = require_fal_client()
+    storage = get_service(StorageManager)
     
     # Find all image files in directory
     images_dir = Path(images_dir)
@@ -98,9 +76,21 @@ def fine_tune(ctx, images_dir: str, name: str, trigger_word: str):
             return
     
     try:
+        registry = get_registry()
+        
+        # Find a provider that supports fine-tuning
+        fine_tuning_providers = [p for p in registry._providers.values() 
+                               if p.supports_capability(ModelCapability.FINE_TUNING)]
+        
+        if not fine_tuning_providers:
+            click.echo("❌ No providers support fine-tuning")
+            return
+        
+        provider = fine_tuning_providers[0]  # Use first available provider
+        
         # Start fine-tuning
         click.echo("Starting fine-tuning process...")
-        result = fal.fine_tune_flux_lora(image_paths, trigger_word)
+        result = provider.fine_tune_model(image_paths, trigger_word)
         
         if 'lora_url' in result:
             # Save model info
@@ -145,37 +135,44 @@ def generate(ctx, prompt: str, base_model: str, model: str, reference_images: tu
     Supports multiple base models: flux-dev, flux-schnell, and nano-banana.
     Each model has appropriate defaults and capabilities.
     """
-    fal = require_fal_client(ctx)
-    storage = ctx.obj['storage']
+    registry = get_registry()
+    storage = get_service(StorageManager)
     
-    # Set model-specific defaults for steps if not provided
-    if steps is None:
-        model_defaults = {
-            "flux-dev": 28,
-            "flux-schnell": 4, 
-            "nano-banana": None  # nano-banana doesn't use steps
-        }
-        steps = model_defaults.get(base_model, 28)
+    # Get provider for the model
+    provider = registry.get_provider_for_model(base_model)
+    if not provider:
+        click.echo(f"❌ No provider found for model '{base_model}'")
+        return
     
-    lora_url = None
-    trigger_word = None
-    model_name = f"base_{base_model.replace('-', '_')}"
+    # Parse size into width/height
+    size_mapping = {
+        'square': (1024, 1024),
+        'landscape_4_3': (1024, 768),
+        'landscape_16_9': (1024, 576),
+        'portrait_4_3': (768, 1024),
+        'portrait_16_9': (576, 1024)
+    }
+    width, height = size_mapping.get(size, (1024, 1024))
     
     # Load fine-tuned model info if specified
+    fine_tuned_model = None
+    model_name = f"base_{base_model.replace('-', '_')}"
+    
     if model:
-        if base_model == "nano-banana":
-            click.echo("⚠️  nano-banana doesn't support fine-tuned models, ignoring --model parameter")
+        model_info = provider.get_model_info(base_model)
+        if not model_info or not model_info.supports_fine_tuning:
+            click.echo(f"⚠️  {base_model} doesn't support fine-tuned models, ignoring --model parameter")
             model = None
         else:
             try:
-                model_info = storage.load_model(model)
-                if not model_info:
+                model_data = storage.load_model(model)
+                if not model_data:
                     click.echo(f"Error: Model '{model}' not found. Use 'nano-banana list-models' to see available models.")
                     click.echo(f"Falling back to base {base_model} model...")
                     model = None
                 else:
-                    lora_url = model_info['lora_url']
-                    trigger_word = model_info['trigger_word']
+                    fine_tuned_model = model_data['lora_url']
+                    trigger_word = model_data['trigger_word']
                     model_name = model
                     
                     click.echo(f"Using fine-tuned model: {model} on {base_model}")
@@ -183,7 +180,7 @@ def generate(ctx, prompt: str, base_model: str, model: str, reference_images: tu
                     
                     if trigger_word.lower() not in prompt.lower():
                         click.echo(f"💡 Tip: Include '{trigger_word}' in your prompt for best results")
-                    
+                        
             except Exception as e:
                 click.echo(f"Error loading model: {e}")
                 click.echo(f"Falling back to base {base_model} model...")
@@ -194,26 +191,30 @@ def generate(ctx, prompt: str, base_model: str, model: str, reference_images: tu
         click.echo(f"Using base {base_model} model")
     
     try:
-        # Convert reference images tuple to list
-        reference_image_list = list(reference_images) if reference_images else None
-        
-        # Generate images
-        result = fal.generate_image(
+        # Create generation request
+        request = GenerationRequest(
             prompt=prompt,
-            base_model=base_model,
-            lora_url=lora_url,
+            model_name=base_model,
             num_images=count,
-            image_size=size,
-            steps=steps or 0,  # Provide fallback for nano-banana
-            reference_images=reference_image_list
+            width=width,
+            height=height,
+            steps=steps,
+            reference_images=list(reference_images) if reference_images else None,
+            fine_tuned_model=fine_tuned_model
         )
         
-        if 'images' in result:
-            click.echo(f"✅ Generated {len(result['images'])} image(s)!")
+        # Generate images through registry
+        result = registry.generate_image(request)
+        
+        if result.success and result.images:
+            click.echo(f"✅ Generated {len(result.images)} image(s)!")
+            
+            if result.generation_time:
+                click.echo(f"⏱️  Generation time: {result.generation_time:.1f}s")
             
             # Save images locally
             saved_paths = []
-            for i, image_data in enumerate(result['images']):
+            for i, image_data in enumerate(result.images):
                 image_url = image_data.get('url')
                 if image_url:
                     filename = f"{model_name}_{storage.get_timestamp()}_{i+1}.jpg"
@@ -221,18 +222,41 @@ def generate(ctx, prompt: str, base_model: str, model: str, reference_images: tu
                     saved_paths.append(saved_path)
                     click.echo(f"Saved: {saved_path}")
             
-            # Update database with image paths
-            if '_generation_id' in result and saved_paths:
-                db = ctx.obj['db']
-                try:
-                    db.update_image_paths(result['_generation_id'], saved_paths)
-                except Exception as e:
-                    if ctx.obj.get('verbose'):
-                        click.echo(f"Warning: Failed to update database with image paths: {e}")
+            # Log to database
+            db = get_service(DatabaseManager)
+            try:
+                db.add_generation(
+                    prompt=prompt,
+                    model=model_name,
+                    base_model=base_model,
+                    success=True,
+                    generation_time=result.generation_time or 0.0,
+                    image_paths=saved_paths,
+                    metadata=result.metadata
+                )
+            except Exception as e:
+                if ctx.obj.get('verbose'):
+                    click.echo(f"Warning: Failed to log to database: {e}")
             
             click.echo(f"\n🎨 Images saved to: {storage.outputs_dir}")
         else:
-            click.echo("❌ Image generation failed. Check the output above for errors.")
+            click.echo(f"❌ Image generation failed: {result.error_message or 'Unknown error'}")
+            
+            # Log failure to database
+            db = get_service(DatabaseManager)
+            try:
+                db.add_generation(
+                    prompt=prompt,
+                    model=model_name,
+                    base_model=base_model,
+                    success=False,
+                    generation_time=result.generation_time or 0.0,
+                    error_message=result.error_message,
+                    metadata=result.metadata
+                )
+            except Exception as e:
+                if ctx.obj.get('verbose'):
+                    click.echo(f"Warning: Failed to log error to database: {e}")
             
     except Exception as e:
         click.echo(f"❌ Error during generation: {e}")
@@ -253,8 +277,8 @@ def inpaint(ctx, image: str, mask: str, prompt: str, model: str, strength: float
     Provide an image, a mask (white areas will be inpainted), and a prompt
     describing the desired changes. Optionally use a fine-tuned model.
     """
-    fal = require_fal_client(ctx)
-    storage = ctx.obj['storage']
+    fal = require_fal_client()
+    storage = get_service(StorageManager)
     
     lora_url = None
     model_name = "base_flux"
@@ -318,7 +342,7 @@ def inpaint(ctx, image: str, mask: str, prompt: str, model: str, strength: float
 @click.pass_context
 def list_models(ctx):
     """List all available fine-tuned models"""
-    storage = ctx.obj['storage']
+    storage = get_service(StorageManager)
     
     models = storage.list_models()
     if not models:
@@ -357,7 +381,7 @@ def detect_watermark(ctx, image: str):
 @click.pass_context  
 def stats(ctx):
     """Show storage usage statistics"""
-    storage = ctx.obj['storage']
+    storage = get_service(StorageManager)
     
     stats = storage.get_storage_stats()
     
@@ -378,8 +402,8 @@ def editor(ctx, image: str):
     Start with an image and apply edits step-by-step using natural language prompts.
     Each edit builds on the previous result with live ASCII previews.
     """
-    fal = require_fal_client(ctx)
-    storage = ctx.obj['storage']
+    fal = require_fal_client()
+    storage = get_service(StorageManager)
     
     try:
         from .editor_ui import IterativeEditor
@@ -416,7 +440,7 @@ def set_key(api_key: str):
 @click.pass_context
 def show_config(ctx):
     """Show current configuration"""
-    config = ctx.obj['config']
+    config = get_service(Config)
     
     click.echo("Current configuration:")
     click.echo(f"  FAL API Key: {'Set' if config.fal_key else 'Not set'}")
@@ -437,7 +461,7 @@ def history():
 @click.pass_context
 def list_history(ctx, search: str, model: str, limit: int, show_all: bool):
     """List generation history"""
-    db = ctx.obj['db']
+    db = get_service(DatabaseManager)
     
     try:
         results = db.search_generations(
@@ -483,7 +507,7 @@ def list_history(ctx, search: str, model: str, limit: int, show_all: bool):
 @click.pass_context
 def show_generation(ctx, generation_id: int):
     """Show detailed information about a specific generation"""
-    db = ctx.obj['db']
+    db = get_service(DatabaseManager)
     
     try:
         gen = db.get_generation_by_id(generation_id)
@@ -538,7 +562,7 @@ def show_generation(ctx, generation_id: int):
 @click.pass_context
 def open_generation(ctx, generation_id: int, index: int):
     """Open images from a specific generation"""
-    db = ctx.obj['db']
+    db = get_service(DatabaseManager)
     
     try:
         gen = db.get_generation_by_id(generation_id)
@@ -591,7 +615,7 @@ def open_generation(ctx, generation_id: int, index: int):
 @click.pass_context
 def history_stats(ctx):
     """Show generation history statistics"""
-    db = ctx.obj['db']
+    db = get_service(DatabaseManager)
     
     try:
         stats = db.get_stats()
@@ -623,7 +647,7 @@ def history_stats(ctx):
 @click.pass_context
 def cleanup_history(ctx, days: int, dry_run: bool):
     """Clean up old generation history"""
-    db = ctx.obj['db']
+    db = get_service(DatabaseManager)
     
     if dry_run:
         click.echo(f"DRY RUN: Would delete generations older than {days} days")
@@ -699,8 +723,8 @@ def session_editor(ctx):
     - Real-time image preview with high quality terminal display
     - Keyboard navigation and controls
     """
-    fal = require_fal_client(ctx)
-    storage = ctx.obj['storage']
+    fal = require_fal_client()
+    storage = get_service(StorageManager)
     
     try:
         from .session_editor_ui import run_session_editor
@@ -734,8 +758,8 @@ def editor_command(ctx, image_path):
             click.echo(f"❌ Image not found: {image_path}")
             return
         
-        fal = require_fal_client(ctx)
-        storage = ctx.obj['storage']
+        fal = require_fal_client()
+        storage = get_service(StorageManager)
         
         try:
             from .session_editor_ui import run_session_editor_with_image

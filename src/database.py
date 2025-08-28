@@ -5,13 +5,14 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Optional, Any
 from .config import Config
+from .services import get_service
 
 
 class DatabaseManager:
     """Manages SQLite database for generation history"""
     
     def __init__(self) -> None:
-        self.config = Config()
+        self.config = get_service(Config)
         self.db_path: Path = self.config.storage_dir / 'generations.db'
         self._init_database()
     
