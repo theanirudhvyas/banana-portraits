@@ -89,9 +89,10 @@ class ImagePreview:
         if width is None or height is None:
             term_width, term_height = self._get_terminal_size()
             if width is None:
-                width = min(term_width - 2, 300)  # Use almost full width, increased cap
+                # For pixel formats, use actual terminal width; for character formats, smaller
+                width = min(term_width - 2, 120)  # More conservative default
             if height is None:
-                height = min(term_height - 5, 150)  # Use more vertical space, increased cap
+                height = min(term_height - 5, 60)  # More conservative default
         
         print(f"\n📸 Image Preview: {Path(image_path).name} ({width}×{height})")
         print("─" * min(width, 80))
@@ -146,25 +147,48 @@ class ImagePreview:
                 aspect_ratio = img.height / img.width
                 height = int(width * aspect_ratio * 0.5)  # Terminal character aspect ratio
         
-        # Try system chafa command first
+        # Try system chafa command first with smart format detection
         if shutil.which('chafa'):
-            try:
-                cmd = [
-                    'chafa',
-                    '--size', f'{width}x{height}',
-                    '--colors=full',  # Use full color range instead of 256
-                    '--format=symbols',  # Use symbols format for best compatibility
-                    '--color-space=din99d',  # Better color accuracy
-                    '--optimize=9',  # Maximum optimization for quality
-                    '--dither=diffusion',  # Better dithering
-                    image_path
-                ]
-                result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-                print(result.stdout)
-                return True
-            except subprocess.CalledProcessError:
-                # Fall through to Python libraries
-                pass
+            # For Alacritty, skip to symbols format as it doesn't support graphics protocols
+            if self.terminal_type == 'alacritty':
+                formats_to_try = ['symbols']
+            else:
+                # Try formats in order of quality for other terminals
+                formats_to_try = ['sixels', 'iterm', 'kitty', 'symbols']
+            
+            for fmt in formats_to_try:
+                try:
+                    cmd = [
+                        'chafa',
+                        '--size', f'{width}x{height}',
+                        '--colors=full',  # Use full color range
+                        f'--format={fmt}',  # Try each format
+                        '--color-space=din99d',  # Better color accuracy
+                        '--optimize=9',  # Maximum optimization for quality
+                        '--dither=diffusion',  # Better dithering
+                        image_path
+                    ]
+                    
+                    # Set timeout for formats that might not be supported
+                    result = subprocess.run(cmd, capture_output=True, text=True, 
+                                          check=True, timeout=3)
+                    
+                    # Validate output - check if it's raw graphics codes or actual display content
+                    output = result.stdout
+                    if output and not self._is_raw_graphics_codes(output):
+                        print(output)
+                        print("─" * 60)
+                        print(f"🎨 Displayed using Chafa ({fmt} format - high quality)")
+                        return True
+                    else:
+                        # Invalid output, try next format
+                        continue
+                    
+                except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+                    # Try next format
+                    continue
+            
+            # If all formats failed, fall through to Python libraries
         
         # Try Python chafa libraries
         try:
@@ -199,6 +223,23 @@ class ImagePreview:
         except ImportError:
             pass
             
+        return False
+    
+    def _is_raw_graphics_codes(self, output: str) -> bool:
+        """Check if output contains raw graphics protocol codes that won't display properly"""
+        # Check for common graphics protocol escape sequences
+        graphics_indicators = [
+            '_Ga=',  # Kitty graphics protocol
+            '\033_G',  # Kitty graphics escape
+            '\033P',  # Sixel start sequence
+            'q\033',  # Sixel end sequence
+        ]
+        
+        # If output starts with graphics codes, it's likely raw protocol data
+        for indicator in graphics_indicators:
+            if indicator in output[:100]:  # Check first 100 chars
+                return True
+        
         return False
     
     def _show_rich_image(self, image_path: str, width: int, height: Optional[int] = None) -> bool:

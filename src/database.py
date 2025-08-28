@@ -53,6 +53,42 @@ class DatabaseManager:
             conn.execute("""
                 CREATE INDEX IF NOT EXISTS idx_success ON generations(success)
             """)
+            
+            # Create sessions table for iterative editing
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS sessions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    created_timestamp TEXT NOT NULL,
+                    updated_timestamp TEXT NOT NULL,
+                    initial_image_path TEXT NOT NULL,
+                    description TEXT
+                )
+            """)
+            
+            # Create session_steps table to track editing steps
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS session_steps (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id INTEGER NOT NULL,
+                    step_number INTEGER NOT NULL,
+                    prompt TEXT NOT NULL,
+                    image_path TEXT NOT NULL,
+                    timestamp TEXT NOT NULL,
+                    success BOOLEAN NOT NULL,
+                    error_message TEXT,
+                    generation_time REAL,
+                    FOREIGN KEY (session_id) REFERENCES sessions (id)
+                )
+            """)
+            
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_session_id ON session_steps(session_id)
+            """)
+            
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_session_step ON session_steps(session_id, step_number)
+            """)
     
     def log_generation(
         self,
@@ -263,3 +299,80 @@ class DatabaseManager:
                 (cutoff_date,)
             )
             return cursor.rowcount
+    
+    # Session management methods
+    def create_session(self, name: str, initial_image_path: str, description: str = "") -> int:
+        """Create a new editing session"""
+        timestamp = datetime.now().isoformat()
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute("""
+                INSERT INTO sessions (name, created_timestamp, updated_timestamp, initial_image_path, description)
+                VALUES (?, ?, ?, ?, ?)
+            """, (name, timestamp, timestamp, initial_image_path, description))
+            return cursor.lastrowid
+    
+    def add_session_step(self, session_id: int, step_number: int, prompt: str, 
+                        image_path: str, success: bool, error_message: str = None,
+                        generation_time: float = None) -> int:
+        """Add a step to an editing session"""
+        timestamp = datetime.now().isoformat()
+        
+        # Update session timestamp
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("""
+                UPDATE sessions SET updated_timestamp = ? WHERE id = ?
+            """, (timestamp, session_id))
+            
+            cursor = conn.execute("""
+                INSERT INTO session_steps 
+                (session_id, step_number, prompt, image_path, timestamp, success, error_message, generation_time)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (session_id, step_number, prompt, image_path, timestamp, success, error_message, generation_time))
+            return cursor.lastrowid
+    
+    def get_sessions(self) -> List[Dict[str, Any]]:
+        """Get all editing sessions"""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute("""
+                SELECT s.*, COUNT(ss.id) as step_count,
+                       MAX(ss.timestamp) as last_step_timestamp
+                FROM sessions s
+                LEFT JOIN session_steps ss ON s.id = ss.session_id
+                GROUP BY s.id
+                ORDER BY s.updated_timestamp DESC
+            """)
+            return [dict(row) for row in cursor.fetchall()]
+    
+    def get_session_by_id(self, session_id: int) -> Optional[Dict[str, Any]]:
+        """Get a session by ID"""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute("""
+                SELECT s.*, COUNT(ss.id) as step_count
+                FROM sessions s
+                LEFT JOIN session_steps ss ON s.id = ss.session_id
+                WHERE s.id = ?
+                GROUP BY s.id
+            """, (session_id,))
+            result = cursor.fetchone()
+            return dict(result) if result else None
+    
+    def get_session_steps(self, session_id: int) -> List[Dict[str, Any]]:
+        """Get all steps for a session"""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute("""
+                SELECT * FROM session_steps 
+                WHERE session_id = ? 
+                ORDER BY step_number ASC
+            """, (session_id,))
+            return [dict(row) for row in cursor.fetchall()]
+    
+    def delete_session(self, session_id: int) -> bool:
+        """Delete a session and all its steps"""
+        with sqlite3.connect(self.db_path) as conn:
+            # Delete steps first (foreign key constraint)
+            conn.execute("DELETE FROM session_steps WHERE session_id = ?", (session_id,))
+            cursor = conn.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
+            return cursor.rowcount > 0

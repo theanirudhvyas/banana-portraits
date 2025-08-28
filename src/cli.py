@@ -31,6 +31,13 @@ def main(ctx, verbose):
     WARNING: All output is AI-generated and watermarked. 
     Not suitable for deception or impersonation.
     """
+    # Ensure current directory is in Python path for development
+    import sys
+    from pathlib import Path
+    current_dir = Path(__file__).parent.parent
+    if str(current_dir) not in sys.path:
+        sys.path.insert(0, str(current_dir))
+    
     ctx.ensure_object(dict)
     
     # Store verbose flag for all commands
@@ -648,6 +655,101 @@ def browse_history(ctx):
         click.echo("Install with: pip install textual fuzzywuzzy python-levenshtein")
     except Exception as e:
         click.echo(f"❌ Error launching TUI: {e}")
+
+
+@history.command('editor')
+@click.pass_context
+def split_editor(ctx):
+    """Launch split-screen editor with prompts on left and image preview on right
+    
+    Features:
+    - Split-screen layout: prompts list on left, image preview on right
+    - Real-time image updates as you select different prompts
+    - High-quality terminal image preview using chafa
+    - Browse through generation history
+    - Click images to open in external viewer
+    - Keyboard navigation (q=quit, r=refresh, enter=open image)
+    """
+    try:
+        from .split_editor_ui import run_split_editor
+        run_split_editor()
+    except ImportError as e:
+        click.echo("❌ TUI dependencies not installed.")
+        click.echo("Install with: pip install textual")
+    except Exception as e:
+        click.echo(f"❌ Error launching split editor: {e}")
+
+
+@history.command('sessions')
+@click.pass_context 
+def session_editor(ctx):
+    """Launch session-based iterative image editor
+    
+    Features:
+    - Create editing sessions starting with any image
+    - Iteratively edit images with prompts
+    - Split-screen TUI: edit steps on left, current image on right
+    - Full edit history tracking per session
+    - Switch between multiple sessions
+    - Real-time image preview with high quality terminal display
+    - Keyboard navigation and controls
+    """
+    fal = require_fal_client(ctx)
+    storage = ctx.obj['storage']
+    
+    try:
+        from .session_editor_ui import run_session_editor
+        run_session_editor(fal, storage)
+    except ImportError as e:
+        click.echo("❌ TUI dependencies not installed.")
+        click.echo("Install with: pip install textual")
+    except Exception as e:
+        click.echo(f"❌ Error launching session editor: {e}")
+
+
+@main.command('editor')
+@click.argument('image_path', required=False)
+@click.pass_context
+def editor_command(ctx, image_path):
+    """Launch split-screen editor for browsing history or start new editing session
+    
+    Usage:
+      nano-banana editor                    # Browse generation history
+      nano-banana editor path/to/image.jpg  # Start new editing session
+    
+    Features:
+    - Split-screen layout with real-time image preview
+    - High-quality terminal image rendering with chafa
+    - Session-based iterative editing with full history tracking
+    - Keyboard navigation (q=quit, r=refresh, enter=open image)
+    """
+    if image_path:
+        # Start new editing session with provided image
+        if not Path(image_path).exists():
+            click.echo(f"❌ Image not found: {image_path}")
+            return
+        
+        fal = require_fal_client(ctx)
+        storage = ctx.obj['storage']
+        
+        try:
+            from .session_editor_ui import run_session_editor_with_image
+            run_session_editor_with_image(fal, storage, image_path)
+        except ImportError as e:
+            click.echo("❌ TUI dependencies not installed.")
+            click.echo("Install with: pip install textual")
+        except Exception as e:
+            click.echo(f"❌ Error launching session editor: {e}")
+    else:
+        # Browse generation history
+        try:
+            from .split_editor_ui import run_split_editor
+            run_split_editor()
+        except ImportError as e:
+            click.echo("❌ TUI dependencies not installed.")
+            click.echo("Install with: pip install textual")
+        except Exception as e:
+            click.echo(f"❌ Error launching editor: {e}")
 
 
 if __name__ == '__main__':
