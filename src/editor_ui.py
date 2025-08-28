@@ -6,6 +6,7 @@ from typing import List, Optional, Dict
 import subprocess
 from PIL import Image
 import tempfile
+from .image_preview import ImagePreview
 
 class IterativeEditor:
     """Terminal UI for iterative image editing"""
@@ -17,6 +18,7 @@ class IterativeEditor:
         self.current_image_url = None
         self.edit_history = []  # List of (prompt, image_path) tuples
         self.current_step = 0
+        self.image_preview = ImagePreview()
         
     def start_session(self, initial_image_path: str):
         """Start an interactive editing session with an initial image"""
@@ -27,6 +29,10 @@ class IterativeEditor:
         self.edit_history = [("Initial image", initial_image_path)]
         self.current_step = 0
         
+        # Show capabilities info
+        capabilities = self.image_preview.get_capabilities()
+        preview_methods = ", ".join(capabilities['methods_available'])
+        
         print(f"""
 ╔══════════════════════════════════════════════════════════════════════════════╗
 ║                          🎨 NANO-BANANA EDITOR                              ║
@@ -35,6 +41,7 @@ class IterativeEditor:
 
 📁 Starting with: {Path(initial_image_path).name}
 🖼️  Step {self.current_step + 1}: {self.edit_history[0][0]}
+🖥️  Terminal: {capabilities['terminal']} | Preview: {preview_methods}
 
 Commands:
   • Type your edit prompt and press Enter
@@ -134,19 +141,29 @@ Commands:
             print(f"❌ Edit failed: {e}")
     
     def _show_image_preview(self):
-        """Show ASCII preview of current image in terminal"""
+        """Show enhanced image preview using best available method"""
         try:
             print(f"\n📸 Current Image Preview (Step {self.current_step + 1}):")
-            print("─" * 60)
             
-            # Generate ASCII preview
-            ascii_art = self._image_to_ascii(self.current_image_path, width=60)
-            print(ascii_art)
-            print("─" * 60)
-            print(f"📁 File: {Path(self.current_image_path).name}")
+            # Use enhanced preview system
+            success = self.image_preview.show_image(self.current_image_path, width=60)
             
+            if not success:
+                print("❌ All preview methods failed")
+            else:
+                print(f"📁 File: {Path(self.current_image_path).name}")
+                
         except Exception as e:
             print(f"❌ Preview failed: {e}")
+            # Fallback to old ASCII method
+            try:
+                ascii_art = self._image_to_ascii(self.current_image_path, width=60)
+                print("─" * 60)
+                print(ascii_art)
+                print("─" * 60)
+                print(f"📁 File: {Path(self.current_image_path).name}")
+            except:
+                print(f"❌ All preview methods failed: {e}")
     
     def _image_to_ascii(self, image_path: str, width: int = 60) -> str:
         """Convert image to ASCII art for terminal preview"""

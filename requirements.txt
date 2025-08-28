@@ -6,3 +6,4 @@ python-dotenv>=1.0.0
 textual>=0.40.0
 fuzzywuzzy>=0.18.0
 python-levenshtein>=0.21.1
+rich>=13.0.0
