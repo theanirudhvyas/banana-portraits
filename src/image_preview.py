@@ -65,8 +65,18 @@ class ImagePreview:
             return True
         return False
     
-    def show_image(self, image_path: str, width: int = 60, height: Optional[int] = None) -> bool:
-        """Show image using best available method
+    def _get_terminal_size(self) -> Tuple[int, int]:
+        """Get terminal size in characters"""
+        try:
+            import shutil
+            size = shutil.get_terminal_size()
+            return size.columns, size.lines
+        except Exception:
+            # Fallback to reasonable defaults
+            return 120, 40
+    
+    def show_image(self, image_path: str, width: Optional[int] = None, height: Optional[int] = None) -> bool:
+        """Show image using best available method with automatic terminal size detection
         
         Returns:
             bool: True if image was displayed successfully
@@ -75,8 +85,16 @@ class ImagePreview:
             print(f"❌ Image not found: {image_path}")
             return False
         
-        print(f"\n📸 Image Preview: {Path(image_path).name}")
-        print("─" * 60)
+        # Auto-detect terminal size if not specified
+        if width is None or height is None:
+            term_width, term_height = self._get_terminal_size()
+            if width is None:
+                width = min(term_width - 2, 300)  # Use almost full width, increased cap
+            if height is None:
+                height = min(term_height - 5, 150)  # Use more vertical space, increased cap
+        
+        print(f"\n📸 Image Preview: {Path(image_path).name} ({width}×{height})")
+        print("─" * min(width, 80))
         
         # Method 1: Try Chafa for color terminal display
         if self.supports_chafa:
@@ -134,8 +152,11 @@ class ImagePreview:
                 cmd = [
                     'chafa',
                     '--size', f'{width}x{height}',
-                    '--colors', '256',
-                    '--format', 'sixel' if self.terminal_type in ['alacritty', 'xterm'] else 'ansi',
+                    '--colors=full',  # Use full color range instead of 256
+                    '--format=symbols',  # Use symbols format for best compatibility
+                    '--color-space=din99d',  # Better color accuracy
+                    '--optimize=9',  # Maximum optimization for quality
+                    '--dither=diffusion',  # Better dithering
                     image_path
                 ]
                 result = subprocess.run(cmd, capture_output=True, text=True, check=True)
@@ -151,7 +172,7 @@ class ImagePreview:
             options = {
                 'width': width,
                 'height': height,
-                'format': 'sixel' if self.terminal_type in ['alacritty', 'xterm'] else 'ansi',
+                'format': 'symbols',  # Use symbols for best compatibility
                 'colors': 256 if '256' in os.environ.get('TERM', '') else 16
             }
             output = pychafa.chafa(image_path, **options)

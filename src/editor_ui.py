@@ -145,8 +145,8 @@ Commands:
         try:
             print(f"\n📸 Current Image Preview (Step {self.current_step + 1}):")
             
-            # Use enhanced preview system
-            success = self.image_preview.show_image(self.current_image_path, width=60)
+            # Use enhanced preview system with auto-sizing
+            success = self.image_preview.show_image(self.current_image_path)
             
             if not success:
                 print("❌ All preview methods failed")
@@ -157,10 +157,18 @@ Commands:
             print(f"❌ Preview failed: {e}")
             # Fallback to old ASCII method
             try:
-                ascii_art = self._image_to_ascii(self.current_image_path, width=60)
-                print("─" * 60)
+                # Get terminal size for ASCII fallback too
+                try:
+                    import shutil
+                    term_size = shutil.get_terminal_size()
+                    ascii_width = min(term_size.columns - 4, 120)
+                except:
+                    ascii_width = 80
+                    
+                ascii_art = self._image_to_ascii(self.current_image_path, width=ascii_width)
+                print("─" * min(ascii_width, 80))
                 print(ascii_art)
-                print("─" * 60)
+                print("─" * min(ascii_width, 80))
                 print(f"📁 File: {Path(self.current_image_path).name}")
             except:
                 print(f"❌ All preview methods failed: {e}")
