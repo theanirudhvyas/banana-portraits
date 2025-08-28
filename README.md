@@ -11,8 +11,9 @@ To get started with nano-banana as a user, run this in Claude Code:
 1. Clone the repository: git clone <repository-url> && cd nano_banana_portrait
 2. Set up Python environment: python3 -m venv venv && source venv/bin/activate
 3. Install the package: pip install -e .
-4. Set FAL API key: nano-banana config set-key YOUR_FAL_API_KEY
-5. Test with quick generation: nano-banana generate -p "a robot holding a banana" -b nano-banana
+4. Install chafa for color image previews: brew install chafa (macOS) or apt install chafa (Linux)
+5. Set FAL API key: nano-banana config set-key YOUR_FAL_API_KEY
+6. Test with quick generation: nano-banana generate -p "a robot holding a banana" -b nano-banana
 
 See "Quick Generation Examples" in Additional Context for usage patterns.
 ```
@@ -25,9 +26,10 @@ To set up your development environment, run this in Claude Code:
 2. Create virtual environment: python3 -m venv venv && source venv/bin/activate
 3. Install in development mode: pip install -e .
 4. Install development dependencies: pip install -r requirements.txt
-5. Set up environment: cp .env.example .env && nano-banana config set-key YOUR_FAL_API_KEY
-6. Run tests: nano-banana generate -p "test prompt" -b nano-banana -v
-7. Verify all commands work: nano-banana --help && nano-banana history --help
+5. Install chafa for color image previews: brew install chafa (macOS) or apt install chafa (Linux)
+6. Set up environment: cp .env.example .env && nano-banana config set-key YOUR_FAL_API_KEY
+7. Run tests: nano-banana generate -p "test prompt" -b nano-banana -v
+8. Verify all commands work: nano-banana --help && nano-banana history --help
 
 See "Development Commands" and "Testing" sections in Additional Context for full workflow.
 ```
@@ -39,6 +41,7 @@ See "Development Commands" and "Testing" sections in Additional Context for full
 - FAL API key ([get one here](https://fal.ai))
 - Internet connection for API calls
 - ~100MB storage per trained model
+- **Chafa** (optional but recommended for color image previews in terminal)
 
 ### Quick Generation Examples
 
@@ -54,16 +57,31 @@ nano-banana generate --prompt "a person in a sci-fi city, photorealistic" -b flu
 nano-banana generate --prompt "a person in a sci-fi city" -b flux-schnell
 ```
 
-**Custom Portrait Workflow:**
+**Custom Portrait Workflows:**
+
+*Option 1: Fine-tuning (Flux models only)*
 ```bash
 # 1. Fine-tune with your photos
 nano-banana fine-tune --images-dir ./my_photos --name john_model --trigger-word JOHN
 
 # 2. Generate custom portraits
 nano-banana generate --model john_model --prompt "JOHN in a sci-fi city, photorealistic"
+```
 
-# 3. Edit faces with inpainting
-nano-banana inpaint --image generated.jpg --mask face_mask.png --prompt "smiling happily" --model john_model
+*Option 2: Reference Images (nano-banana, no training needed)*
+```bash
+# Generate with character consistency using reference photos
+nano-banana generate -p "This person as an astronaut in space" -b nano-banana \
+  -r photo1.jpg -r photo2.jpg -r photo3.jpg
+
+# Interactive editing with live previews
+nano-banana editor -i generated_image.jpg
+```
+
+*Option 3: Face Inpainting*
+```bash
+# Edit faces with inpainting (any model)
+nano-banana inpaint --image generated.jpg --mask face_mask.png --prompt "smiling happily"
 ```
 
 ### Development Commands
@@ -96,8 +114,10 @@ nano-banana -v generate -p "test prompt" -b nano-banana
 
 **Core Commands:**
 - `nano-banana generate -p "prompt" -b model` - Generate images
+- `nano-banana generate -p "prompt" -r image1.jpg -r image2.jpg -b nano-banana` - Generate with reference images
 - `nano-banana fine-tune -i photos_dir -n model_name -t TRIGGER` - Train LoRA model  
 - `nano-banana inpaint -i image -k mask -p "changes"` - Edit faces
+- `nano-banana editor -i image.jpg` - **NEW**: Interactive editing with live previews
 - `nano-banana history browse` - Interactive Terminal UI browser
 - `nano-banana config set-key API_KEY` - Set FAL API key
 
@@ -131,6 +151,36 @@ nano_banana_portrait/
 - **Database Manager**: SQLite tracking for all generations with search/stats
 - **Terminal UI**: Textual-based browser with ASCII thumbnails and fuzzy search
 - **Storage Manager**: Organized file storage in `data/` directory
+
+### Interactive Image Editor
+
+**🎨 NEW: Terminal-based iterative editing with live previews**
+
+```bash
+# Start interactive editing session
+nano-banana editor -i path/to/image.jpg
+
+# Commands available in editor:
+# - Type edit prompts directly (e.g., "make the background sunset colors")
+# - 'preview' - Show current image with color graphics
+# - 'history' - View all edit steps
+# - 'help' - Show command reference
+# - 'quit' - Exit editor
+```
+
+**Features:**
+- **Live Color Previews**: Full-color image display using Chafa sixel graphics
+- **Step-by-step Editing**: Each edit builds on the previous result
+- **Edit History**: Navigate through all editing steps
+- **Smart Terminal Detection**: Automatically uses best preview method for your terminal
+- **Multi-tier Fallback**: Chafa color → Rich graphics → External viewer → ASCII art
+- **Auto-save**: All edited images saved with timestamped filenames
+
+**Supported Terminals:**
+- **Alacritty**: Full sixel color graphics ✨
+- **iTerm2**: High-quality color rendering
+- **Kitty**: Native graphics protocol support
+- **Other terminals**: Graceful fallback to best available method
 
 ### Generation History Database
 
@@ -195,15 +245,22 @@ nano-banana -v generate --prompt "debug test" -b nano-banana
 - "FAL_KEY is required" → Run `nano-banana config set-key YOUR_KEY`
 - Python version → Ensure Python 3.8+
 - Virtual environment → Always activate: `source venv/bin/activate`
+- Color previews not working → Install chafa: `brew install chafa` (macOS) or `apt install chafa` (Linux)
 
 **Generation Issues:**
 - "No model found" → Check `nano-banana list-models`
 - Failed generation → Use `-v` flag to see API errors
 - Training fails → Verify 15-20 clear face photos of same person
+- Reference images ignored → Use with nano-banana model: `-b nano-banana -r image.jpg`
 
 **File Issues:**
 - "No image files found" → Check directory contains .jpg/.png files
 - Permissions → Ensure write access to `data/` directory
+
+**Editor/Preview Issues:**
+- No color in image previews → Install chafa system command
+- Editor crashes → Check image file exists and is readable
+- ASCII-only previews → Normal fallback if chafa unavailable
 
 ### Legal & Ethics
 
