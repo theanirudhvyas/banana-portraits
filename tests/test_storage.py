@@ -15,20 +15,25 @@ def temp_storage():
     with tempfile.TemporaryDirectory() as temp_dir:
         temp_path = Path(temp_dir)
         
-        # Mock the config to use temp directory
-        with patch('src.storage.Config') as mock_config:
-            config_instance = Mock()
-            config_instance.models_dir = temp_path / "models"
-            config_instance.outputs_dir = temp_path / "outputs" 
-            config_instance.temp_dir = temp_path / "temp"
-            config_instance.storage_dir = temp_path
+        # Create a real config instance with temp directory
+        from src.services import register_service
+        from src.config import Config
+        
+        # Patch Config's __init__ to use temp directory
+        with patch.object(Config, '__init__', lambda self: None):
+            config = Config()
+            config.models_dir = temp_path / "models"
+            config.outputs_dir = temp_path / "outputs" 
+            config.temp_dir = temp_path / "temp"
+            config.storage_dir = temp_path
             
             # Create directories
-            config_instance.models_dir.mkdir(parents=True, exist_ok=True)
-            config_instance.outputs_dir.mkdir(parents=True, exist_ok=True)
-            config_instance.temp_dir.mkdir(parents=True, exist_ok=True)
+            config.models_dir.mkdir(parents=True, exist_ok=True)
+            config.outputs_dir.mkdir(parents=True, exist_ok=True)
+            config.temp_dir.mkdir(parents=True, exist_ok=True)
             
-            mock_config.return_value = config_instance
+            # Register the test config
+            register_service(Config, config)
             
             yield StorageManager()
 
@@ -142,25 +147,23 @@ class TestStorageManager:
         """Test cleaning up temporary files"""
         storage = temp_storage
         
-        # Create some temp files
-        temp_file1 = storage.create_temp_file('.jpg')
-        temp_file2 = storage.create_temp_file('.png')
+        # Create actual files for testing cleanup
+        test_file1 = storage.temp_dir / "test1.txt"
+        test_file2 = storage.temp_dir / "test2.txt"
+        test_file1.write_text("test")
+        test_file2.write_text("test")
         
         # Files exist
-        assert Path(temp_file1).exists() is False  # NamedTemporaryFile with delete=False
-        assert Path(temp_file2).exists() is False
-        
-        # Create actual files for testing cleanup
-        test_file = storage.temp_dir / "test.txt"
-        test_file.write_text("test")
-        assert test_file.exists()
+        assert test_file1.exists()
+        assert test_file2.exists()
         
         # Cleanup
         storage.cleanup_temp_files()
         
         # Temp directory still exists but is empty
         assert storage.temp_dir.exists()
-        assert not test_file.exists()
+        assert not test_file1.exists()
+        assert not test_file2.exists()
     
     def test_get_timestamp(self, temp_storage):
         """Test timestamp generation"""

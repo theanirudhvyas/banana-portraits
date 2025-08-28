@@ -4,7 +4,7 @@ import tempfile
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from src.container import Container
+from src.services import clear_services
 from src.config import Config
 from src.storage import StorageManager
 from src.database import DatabaseManager
@@ -35,10 +35,12 @@ def mock_config(temp_dir):
     return config
 
 
-@pytest.fixture
-def container():
-    """Provide a fresh dependency injection container"""
-    return Container()
+@pytest.fixture(autouse=True)
+def clean_services():
+    """Clear services before and after each test"""
+    clear_services()
+    yield
+    clear_services()
 
 
 @pytest.fixture
