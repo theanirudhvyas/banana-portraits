@@ -5,23 +5,23 @@ import tempfile
 import requests
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, Optional, Any
 from .config import Config
 
 
 class StorageManager:
     """Manages local storage for models, images, and temporary files"""
     
-    def __init__(self):
+    def __init__(self) -> None:
         self.config = Config()
-        self.models_file = self.config.models_dir / 'models.json'
-        self.outputs_dir = self.config.outputs_dir
-        self.temp_dir = self.config.temp_dir
+        self.models_file: Path = self.config.models_dir / 'models.json'
+        self.outputs_dir: Path = self.config.outputs_dir
+        self.temp_dir: Path = self.config.temp_dir
         
         # Load existing models registry
-        self._models = self._load_models_registry()
+        self._models: Dict[str, Dict[str, Any]] = self._load_models_registry()
     
-    def save_model(self, name: str, model_info: Dict) -> None:
+    def save_model(self, name: str, model_info: Dict[str, Any]) -> None:
         """Save model information to registry
         
         Args:
@@ -31,7 +31,7 @@ class StorageManager:
         self._models[name] = model_info
         self._save_models_registry()
     
-    def load_model(self, name: str) -> Optional[Dict]:
+    def load_model(self, name: str) -> Optional[Dict[str, Any]]:
         """Load model information from registry
         
         Args:
@@ -42,7 +42,7 @@ class StorageManager:
         """
         return self._models.get(name)
     
-    def list_models(self) -> Dict[str, Dict]:
+    def list_models(self) -> Dict[str, Dict[str, Any]]:
         """List all saved models
         
         Returns:
@@ -118,7 +118,7 @@ class StorageManager:
         """
         return datetime.now().strftime('%Y%m%d_%H%M%S')
     
-    def get_storage_stats(self) -> Dict:
+    def get_storage_stats(self) -> Dict[str, Any]:
         """Get storage usage statistics
         
         Returns:
@@ -137,7 +137,7 @@ class StorageManager:
             'total_size_mb': get_dir_size(self.config.storage_dir) / (1024 * 1024),
         }
     
-    def _load_models_registry(self) -> Dict:
+    def _load_models_registry(self) -> Dict[str, Dict[str, Any]]:
         """Load models registry from JSON file"""
         if self.models_file.exists():
             try:

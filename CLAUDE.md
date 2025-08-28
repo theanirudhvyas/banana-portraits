@@ -118,3 +118,4 @@ nano-banana generate -p "a robot in a city" -b flux-schnell
 - Model mapping handles user-friendly names to actual FAL endpoints
 - Error handling includes specific model parameter validation
 - Verbose mode shows full JSON API requests/responses for debugging
+- before running any python command, enable the venv using the command `source ./venv/bin/activate`

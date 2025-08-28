@@ -10,12 +10,12 @@ from .config import Config
 class DatabaseManager:
     """Manages SQLite database for generation history"""
     
-    def __init__(self):
+    def __init__(self) -> None:
         self.config = Config()
-        self.db_path = self.config.storage_dir / 'generations.db'
+        self.db_path: Path = self.config.storage_dir / 'generations.db'
         self._init_database()
     
-    def _init_database(self):
+    def _init_database(self) -> None:
         """Initialize database and create tables if they don't exist"""
         with sqlite3.connect(self.db_path) as conn:
             conn.execute("""
@@ -103,7 +103,7 @@ class DatabaseManager:
         success: bool = True,
         error_message: Optional[str] = None,
         image_paths: Optional[List[str]] = None,
-        metadata: Optional[Dict] = None
+        metadata: Optional[Dict[str, Any]] = None
     ) -> int:
         """Log a generation to the database
         

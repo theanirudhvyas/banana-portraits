@@ -2,7 +2,7 @@
 import os
 import time
 import fal_client as fal
-from typing import List, Dict, Optional, Callable
+from typing import List, Dict, Optional, Callable, Any, Union
 from pathlib import Path
 import json
 
@@ -10,7 +10,7 @@ import json
 class FALWrapper:
     """Wrapper class for FAL API operations"""
     
-    def __init__(self, api_key: Optional[str] = None, verbose: bool = False, db_manager=None):
+    def __init__(self, api_key: Optional[str] = None, verbose: bool = False, db_manager: Optional[Any] = None) -> None:
         """Initialize FAL client with API key"""
         self.api_key = api_key or os.getenv('FAL_KEY')
         self.verbose = verbose
@@ -21,7 +21,7 @@ class FALWrapper:
         
         os.environ['FAL_KEY'] = self.api_key
     
-    def _log_verbose(self, title: str, data: any) -> None:
+    def _log_verbose(self, title: str, data: Any) -> None:
         """Log verbose information if verbose mode is enabled"""
         if self.verbose:
             print(f"\n🔍 DEBUG: {title}")
@@ -35,7 +35,7 @@ class FALWrapper:
         self,
         prompt: str,
         base_model: str,
-        result: Dict,
+        result: Dict[str, Any],
         finetuned_model: Optional[str] = None,
         steps: Optional[int] = None,
         image_size: Optional[str] = None,
@@ -70,8 +70,8 @@ class FALWrapper:
         self, 
         image_paths: List[str], 
         trigger_word: str = "NANO",
-        on_progress: Optional[Callable] = None
-    ) -> Dict:
+        on_progress: Optional[Callable[[Any], None]] = None
+    ) -> Dict[str, Any]:
         """Fine-tune Flux LoRA model with user images
         
         Args:
@@ -122,7 +122,7 @@ class FALWrapper:
         self,
         prompt: str,
         image_urls: List[str]
-    ) -> Dict:
+    ) -> Dict[str, Any]:
         """Edit images using nano-banana edit endpoint
         
         Args:
@@ -209,8 +209,8 @@ class FALWrapper:
         image_size: str = "landscape_16_9",
         steps: int = 28,
         reference_images: Optional[List[str]] = None,
-        on_progress: Optional[Callable] = None
-    ) -> Dict:
+        on_progress: Optional[Callable[[Any], None]] = None
+    ) -> Dict[str, Any]:
         """Generate images using specified base model with optional LoRA
         
         Args:
@@ -361,8 +361,8 @@ class FALWrapper:
         prompt: str,
         lora_url: Optional[str] = None,
         strength: float = 0.85,
-        on_progress: Optional[Callable] = None
-    ) -> Dict:
+        on_progress: Optional[Callable[[Any], None]] = None
+    ) -> Dict[str, Any]:
         """Inpaint face region with given prompt
         
         Args:
@@ -447,7 +447,7 @@ class FALWrapper:
         if invalid_files:
             raise ValueError(f"Invalid image formats: {invalid_files}. Supported: {valid_extensions}")
             
-    def _default_progress_callback(self, update) -> None:
+    def _default_progress_callback(self, update: Any) -> None:
         """Default progress callback for queue updates"""
         # Handle different types of status updates
         if hasattr(update, 'status'):

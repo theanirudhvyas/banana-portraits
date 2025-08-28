@@ -4,13 +4,14 @@ import os
 import json
 from pathlib import Path
 from typing import List, Optional
+from .container import configure_container, get_container
 from .fal_wrapper import FALWrapper
 from .storage import StorageManager
 from .config import Config
 from .database import DatabaseManager
 
 
-def require_fal_client(ctx):
+def require_fal_client(ctx) -> FALWrapper:
     """Check if FAL client is available, exit if not"""
     if ctx.obj['fal'] is None:
         click.echo("Error: FAL_KEY is required for this command.")
@@ -23,7 +24,7 @@ def require_fal_client(ctx):
 @click.version_option(version="0.1.0")
 @click.option('--verbose', '-v', is_flag=True, help='Enable verbose logging (shows FAL API responses)')
 @click.pass_context
-def main(ctx, verbose):
+def main(ctx, verbose: bool) -> None:
     """AI Face Identity Image Composer CLI
     
     Generate custom portraits using AI fine-tuning with your own face images.
@@ -43,10 +44,14 @@ def main(ctx, verbose):
     # Store verbose flag for all commands
     ctx.obj['verbose'] = verbose
     
-    # Initialize config and services
-    config = Config()
-    storage = StorageManager()
-    db_manager = DatabaseManager()
+    # Configure dependency injection container
+    container = configure_container()
+    ctx.obj['container'] = container
+    
+    # Resolve core services from container
+    config = container.resolve(Config)
+    storage = container.resolve(StorageManager)
+    db_manager = container.resolve(DatabaseManager)
     
     ctx.obj['config'] = config
     ctx.obj['storage'] = storage

@@ -12,163 +12,14 @@ from textual.reactive import reactive
 from textual import on, events
 
 from .database import DatabaseManager
-from .image_preview import ImagePreview
+from .ui_components import (
+    ImagePreviewWidget, 
+    SessionStepItem, 
+    format_step_info,
+    open_image_externally,
+    COMMON_TUI_CSS
+)
 
-
-class ImagePreviewWidget(Static):
-    """Widget to display session step images"""
-    
-    def __init__(self, image_path: Optional[str] = None):
-        super().__init__()
-        self.image_path = image_path
-        self.add_class("image-preview")
-    
-    def update_image(self, image_path: str):
-        """Update the displayed image"""
-        self.image_path = image_path
-        self.refresh_display()
-    
-    def refresh_display(self):
-        """Refresh the image display"""
-        if not self.image_path or not Path(self.image_path).exists():
-            self.update("[dim]No image for this step[/dim]")
-            return
-        
-        try:
-            # Use high-quality chafa rendering first
-            filename = Path(self.image_path).name
-            chafa_output = self._get_chafa_output(self.image_path, width=50, height=25)
-            
-            if chafa_output:
-                # Use Rich Text to properly render ANSI escape sequences
-                from rich.text import Text
-                
-                # Create Rich Text object that can handle ANSI codes
-                rich_text = Text.from_ansi(chafa_output)
-                
-                # Display the Rich Text object directly (Textual supports this)
-                self.update(rich_text.append(f"\n\n{filename}"))
-            else:
-                # Fallback to ASCII
-                ascii_art = self._generate_ascii_art(self.image_path, width=50, height=25)
-                if ascii_art:
-                    self.update(f"{ascii_art}\n\n{filename}")
-                else:
-                    self.update(f"📷 {filename}")
-                
-        except Exception as e:
-            self.update(f"[red]Preview error: {e}[/red]")
-    
-    def _get_chafa_output(self, image_path: str, width: int = 50, height: int = 25) -> Optional[str]:
-        """Get chafa output using high-quality settings"""
-        try:
-            import subprocess
-            import shutil
-            import os
-            from PIL import Image
-            
-            # Calculate height maintaining aspect ratio
-            with Image.open(image_path) as img:
-                aspect_ratio = img.height / img.width
-                height = int(width * aspect_ratio * 0.5)
-            
-            # Use chafa with simplified settings for better Textual compatibility
-            if shutil.which('chafa'):
-                cmd = [
-                    'chafa',
-                    '--size', f'{width}x{height}',
-                    '--colors=256',
-                    '--format=symbols',
-                    image_path
-                ]
-                
-                try:
-                    # Set environment variables to ensure proper color rendering
-                    env = os.environ.copy()
-                    env['TERM'] = os.environ.get('TERM', 'xterm-256color')
-                    env['COLORTERM'] = os.environ.get('COLORTERM', 'truecolor')
-                    
-                    result = subprocess.run(cmd, capture_output=True, text=True, 
-                                          check=True, timeout=3, env=env)
-                    
-                    output = result.stdout.strip()
-                    if output and not self._contains_raw_escape_codes(output):
-                        return output
-                        
-                except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
-                    pass
-            
-            return None
-            
-        except Exception:
-            return None
-    
-    def _contains_raw_escape_codes(self, text: str) -> bool:
-        """Check if text contains raw escape sequences that look like binary"""
-        # Look for patterns that indicate raw binary data instead of formatted text
-        if len(text) < 10:
-            return False
-        
-        # Check for very long sequences of just numbers and semicolons (raw escape codes)
-        first_line = text.split('\n')[0] if '\n' in text else text[:50]
-        
-        # If the first line is mostly numbers, semicolons, and few actual display characters
-        display_chars = sum(1 for c in first_line if c.isalpha() or c in ' ░▒▓█▄▀■□▲▼►◄')
-        numeric_chars = sum(1 for c in first_line if c.isdigit() or c in ';:')
-        
-        # If there are very few display characters and lots of numbers, it's likely raw codes
-        return numeric_chars > 20 and display_chars < 3
-    
-    def _generate_ascii_art(self, image_path: str, width: int = 50, height: int = 25) -> str:
-        """Generate ASCII art for display in Textual"""
-        try:
-            from PIL import Image
-            
-            chars = " .:-=+*#%@"
-            
-            with Image.open(image_path) as img:
-                img = img.convert('L')
-                aspect_ratio = img.height / img.width
-                calculated_height = int(width * aspect_ratio * 0.5)
-                height = min(height, calculated_height)
-                img = img.resize((width, height))
-                
-                ascii_lines = []
-                for y in range(height):
-                    line = ""
-                    for x in range(width):
-                        pixel = img.getpixel((x, y))
-                        char_index = int(pixel * (len(chars) - 1) / 255)
-                        line += chars[char_index]
-                    ascii_lines.append(line)
-                
-                return '\n'.join(ascii_lines)
-                
-        except Exception:
-            return None
-
-
-class SessionStepItem(ListItem):
-    """List item for a session step"""
-    
-    def __init__(self, step: Dict[str, Any], is_initial: bool = False):
-        self.step = step
-        self.is_initial = is_initial
-        
-        if is_initial:
-            display_text = f"[0] Initial Image"
-        else:
-            status = "✅" if step['success'] else "❌"
-            step_num = step['step_number']
-            prompt = step['prompt']
-            if len(prompt) > 45:
-                prompt = prompt[:42] + "..."
-            display_text = f"{status} [{step_num}] {prompt}"
-        
-        super().__init__(Label(display_text))
-        self.add_class("step-item")
-        if not is_initial and not step['success']:
-            self.add_class("failed")
 
 
 class SessionSelectorApp(App):
@@ -305,7 +156,7 @@ class SessionSelectorApp(App):
 class SessionEditorApp(App):
     """Main session editor with steps on left and image on right"""
     
-    CSS = """
+    CSS = COMMON_TUI_CSS + """
     Screen {
         layout: horizontal;
     }
@@ -328,22 +179,6 @@ class SessionEditorApp(App):
     
     .image-preview {
         height: 70%;
-        border: solid $accent;
-        padding: 1;
-        overflow: auto;
-    }
-    
-    .step-item {
-        height: 3;
-        padding: 1;
-    }
-    
-    .step-item:hover {
-        background: $boost;
-    }
-    
-    .step-item.failed {
-        border-left: thick $error;
     }
     
     #step-info {
@@ -456,35 +291,7 @@ class SessionEditorApp(App):
     
     def update_step_info(self, step: Dict[str, Any]):
         """Update the step details panel"""
-        if step['step_number'] == 0:
-            info_text = f"""[bold]Initial Image[/bold]
-
-[yellow]File:[/yellow]
-{Path(step['image_path']).name}
-
-[yellow]Path:[/yellow]
-{step['image_path']}
-
-[cyan]Instructions:[/cyan]
-Type your edit prompt above and press Enter to create the next step."""
-        else:
-            info_text = f"""[bold]Step {step['step_number']}[/bold]
-
-[cyan]Prompt:[/cyan]
-{step['prompt']}
-
-[yellow]Status:[/yellow]
-{"✅ Success" if step['success'] else "❌ Failed"}
-
-[yellow]File:[/yellow]
-{Path(step['image_path']).name}"""
-            
-            if step.get('generation_time'):
-                info_text += f"\n\n[yellow]Generation Time:[/yellow]\n{step['generation_time']:.2f} seconds"
-            
-            if step.get('error_message'):
-                info_text += f"\n\n[red]Error:[/red]\n{step['error_message']}"
-        
+        info_text = format_step_info(step)
         step_info = self.query_one("#step-info")
         step_info.update(info_text)
     
@@ -602,19 +409,8 @@ Type your edit prompt above and press Enter to create the next step."""
     
     def action_open_image(self):
         """Open the selected image in external viewer"""
-        if self.selected_step and Path(self.selected_step['image_path']).exists():
-            try:
-                import platform
-                system = platform.system()
-                image_path = self.selected_step['image_path']
-                if system == "Darwin":  # macOS
-                    os.system(f"open '{image_path}'")
-                elif system == "Windows":
-                    os.system(f"start '{image_path}'")
-                else:  # Linux
-                    os.system(f"xdg-open '{image_path}'")
-            except Exception:
-                pass
+        if self.selected_step:
+            open_image_externally(self.selected_step['image_path'])
     
     def action_quit(self):
         self.exit(result=None)
